@@ -1,7 +1,7 @@
 plugins {
     id "org.asciidoctor.jvm.convert" version "3.2.0"
     id "com.github.johnrengelman.shadow" version "6.1.0"
-    id "io.micronaut.application" version '1.1.0'
+    id "io.micronaut.application" version '1.2.0'
 }
 
 version "0.1"
@@ -13,7 +13,8 @@ repositories {
 }
 
 micronaut {
-    testRuntime "junit5"
+    version("2.1.4")
+    testRuntime("junit5")
     processing {
         incremental true
         annotations "slack.set.profile.*"
