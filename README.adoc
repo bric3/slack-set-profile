@@ -1,0 +1,101 @@
+= GraalVM cli-app toy that sets slack profile name
+
+== Step 0, a walking skeleton
+
+Use the micronaut command line starter to create the cli application
+
+.Micronaut starter
+[source, shell]
+----
+$ mn create-cli-app --features=graalvm,asciidoctor --jdk=11 slack-set-profile
+| Application created at /Users/bric3/opensource/slack-set-profile
+$ cd slack-set-profile
+----
+
+Then setup GraalVM for this project, I'm using https://asdf-vm.com/[asdf-vm]
+with the https://github.com/halcyon/asdf-java[asdf-java plugin] to manage my
+JDK versions. Then it's necessary to download the `native-image` binary using
+the specific GraalVM `gu` tool.
+
+.Use GraalVM with `native-image`
+[source, shell]
+----
+$ asdf local java graalvm-20.3.0+java11
+$ gu install native-image
+Downloading: Component catalog from www.graalvm.org
+Processing Component: Native Image
+Downloading: Component native-image: Native Image  from github.com
+Installing new component: Native Image (org.graalvm.native-image, version 20.3.0)
+----
+
+Since the micronaut starter generated a sample class, it's already possible
+to use the `nativeImage` task (that is declared by the `io.micronaut.application`
+gradle plugin).
+
+[source, shell]
+----
+$ ./gradlew nativeImage
+Starting a Gradle Daemon, 2 incompatible Daemons could not be reused, use --status for details
+
+> Task :nativeImage
+[application:5132]    classlist:   2,643.56 ms,  0.96 GB
+[application:5132]        (cap):   3,351.71 ms,  0.94 GB
+[application:5132]        setup:   5,624.55 ms,  0.94 GB
+[application:5132]     (clinit):   1,123.83 ms,  3.87 GB
+[application:5132]   (typeflow):  20,613.01 ms,  3.87 GB
+[application:5132]    (objects):  25,885.88 ms,  3.87 GB
+[application:5132]   (features):   2,753.84 ms,  3.87 GB
+[application:5132]     analysis:  52,584.51 ms,  3.87 GB
+[application:5132]     universe:   2,365.85 ms,  3.88 GB
+[application:5132]      (parse):   6,115.11 ms,  3.88 GB
+[application:5132]     (inline):  13,036.22 ms,  5.48 GB
+[application:5132]    (compile):  42,139.93 ms,  5.67 GB
+[application:5132]      compile:  64,370.44 ms,  5.67 GB
+[application:5132]        image:   6,289.82 ms,  5.62 GB
+[application:5132]        write:   1,752.41 ms,  5.62 GB
+[application:5132]      [total]: 136,033.63 ms,  5.62 GB
+Native Image written to: /Users/bric3/opensource/slack-set-profile/build/native-image/application
+
+BUILD SUCCESSFUL in 2m 27s
+3 actionable tasks: 1 executed, 2 up-to-date
+
+$ ls -lah build/native-image/application
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   51M bric3 18 Nov 11:20  build/native-image/application
+
+$ build/native-image/application -h
+11:22:37.206 [main] INFO  i.m.context.env.DefaultEnvironment - Established active environments: [cli]
+Usage: slack-set-profile [-hvV]
+...
+  -h, --help      Show this help message and exit.
+  -v, --verbose   ...
+  -V, --version   Print version information and exit.
+----
+
+This generated a binary of 50 MiB that does nothing but prints help.
+But, it's a standalone executable.
+
+As expected the native image is around 2 orders of magnitude faster than
+starting a cold JVM (with the default options).
+
+.Stupid benchmarks
+[source, shell]
+----
+$ hyperfine "build/native-image/application -h"
+Benchmark #1: build/native-image/application -h
+  Time (mean ± σ):      22.5 ms ±   3.6 ms    [User: 9.6 ms, System: 9.7 ms]
+  Range (min … max):    19.8 ms …  59.9 ms    123 runs
+
+  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet PC without any interferences from other programs. It might help to use the '--warmup' or '--prepare' options.
+
+$ hyperfine "java -jar build/libs/slack-set-profile-0.1-all.jar -h"
+Benchmark #1: java -jar build/libs/slack-set-profile-0.1-all.jar -h
+  Time (mean ± σ):      1.190 s ±  0.025 s    [User: 1.505 s, System: 0.263 s]
+  Range (min … max):    1.166 s …  1.244 s    10 runs
+
+
+----
+
+
+
+
