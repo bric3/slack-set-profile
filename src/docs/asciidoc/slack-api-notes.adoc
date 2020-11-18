@@ -1,0 +1,53 @@
+= Slack API
+
+The bits that I'm interested in are documented there
+https://api.slack.com/methods/users.profile.set[setting profile].
+
+In particular there's a simple HTTP example that I'll use to set
+my slack profile.
+
+[source, http]
+----
+POST /api/users.profile.set
+Host: slack.com
+Authorization: Bearer xoxp-secret-token
+Content-type: application/json; charset=utf-8
+
+{
+    "profile": {
+        "first_name": "John",
+        "last_name": "Smith",
+        "email": "john@smith.com",
+        "fields": {
+            "Xf06054BBB": {
+                "value": "Barista",
+                "alt": "I make the coffee & the tea!"
+            }
+        }
+    }
+}
+----
+
+
+
+Create a Slack app https://api.slack.com/apps[here]. Note some Slack workplace
+require a permission to install the application.
+
+Then set application permissions, in the user token scope section search and add
+
+. users.profile:read
+. users.profile:write
+
+Install the application, this redirect to confirmation screen, then
+back to the application page, where you can find a token `xoxp-9547544771-...`.
+
+Test the app/token with the following request
+
+[source, shell]
+----
+$ curl https://slack.com/api/users.profile.get?token=xoxp-9547544771-...&pretty=1
+----
+
+
+
+https://api.slack.com/methods/oauth.v2.access
