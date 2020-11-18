@@ -1,5 +1,34 @@
 = GraalVM cli-app toy that sets slack profile name
 
+== Step 1, adds simple HTTP read/write operation
+
+The goal is to read or write to the slack user profile,
+for that there's two subcommands
+
+[source,java]
+----
+    @Command(name = "read-profile", description = "Read slack user profile")
+    void readUserProfile() {
+----
+
+[source,java]
+----
+    @Command(name = "write-profile", description = "Read slack user profile")
+    void writeUserProfile() {
+----
+
+They both use the JDK `HttpClient` introduced in JDK 11.
+Let us see what it does to add two new picocli method subcommands
+with `HttpClient` ?
+
+.binary size with subcommands
+[source, shell]
+----
+$  ls -lah build/native-image/application
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   54M bric3 18 Nov 21:33  build/native-image/application
+----
+
 == Step 0, a walking skeleton
 
 Use the micronaut command line starter to create the cli application
