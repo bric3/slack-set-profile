@@ -1,8 +1,8 @@
 package slack.set.profile;
 
-import io.micronaut.configuration.picocli.PicocliRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ScopeType;
@@ -39,7 +39,8 @@ public class SlackSetProfileCommand implements Runnable {
     String token;
 
     public static void main(String[] args) {
-        PicocliRunner.run(SlackSetProfileCommand.class, args);
+        System.exit(new CommandLine(new SlackSetProfileCommand())
+                            .execute(args));
     }
 
     public void run() {
