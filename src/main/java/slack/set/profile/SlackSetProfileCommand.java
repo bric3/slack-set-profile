@@ -11,8 +11,11 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 @Command(
         name = "slack-set-profile",
@@ -56,24 +59,36 @@ public class SlackSetProfileCommand implements Runnable {
             );
 
             log.info("{}", httpResponse);
+            log.info("{}", httpResponse.headers());
             log.info("{}", httpResponse.body());
         } catch (IOException | InterruptedException e) {
             log.error("Error while reaching slack.com/api", e);
         }
     }
 
-    @Command(name = "write-profile", description = "Read slack user profile")
+    @Command(name = "write-profile", description = "Write slack user profile")
     void writeUserProfile() {
         try {
             final HttpResponse<String> httpResponse = httpClient.send(
                     HttpRequest.newBuilder()
-                               .uri(URI.create("https://slack.com/api/users.profile.get?pretty=1"))
+                               .POST(BodyPublishers.ofString(
+                                       "{\n" +
+                                       "    \"profile\": {\n" +
+                                       "        \"real_name\": \"bric3\",\n" +
+                                       "        \"status_text\": \"graalvm\",\n" +
+                                       "        \"status_emoji\": \":allthethings:\",\n" +
+                                       "        \"status_expiration\": " + Instant.now().plus(10, ChronoUnit.MINUTES).getEpochSecond() + "\n" +
+                                       "    }\n" +
+                                       "}"))
+                               .uri(URI.create("https://slack.com/api/users.profile.set?pretty=1"))
                                .header("Authorization", "Bearer " + token)
+                               .header("Content-Type", "application/json; charset=utf-8")
                                .build(),
                     BodyHandlers.ofString()
             );
 
             log.info("{}", httpResponse);
+            log.info("{}", httpResponse.headers());
             log.info("{}", httpResponse.body());
         } catch (IOException | InterruptedException e) {
             log.error("Error while reaching slack.com/api", e);
