@@ -1,5 +1,345 @@
 = GraalVM cli-app toy that sets slack profile name
 
+== Step 3, reducing size by removing micrometer plugin
+
+As useful as micrometer, the plugin still adds a _bill-of-materials_,
+however this bom actually depends on real Java dependencies.
+
+.io.micronaut.library
+> The Micronaut library plugin applies the following modifications to the build:
+>
+> * Applies the Micronaut Bill of Materials (BOM)
+> * Applies the java-library plugin
+> * Configures annotation processing for the current language (Groovy, Java or Kotlin)
+
+.io.micronaut.application
+> The Micronaut application plugin extends the Micronaut Library plugin and adds the following customizations:
+> 
+> * Instead of the java-library plugin the plugin applies the Gradle application plugin.
+> * If the current JVM is GraalVM configures a nativeImage task
+> * Correctly configures Gradle for continuous build
+
+For this toy application, I don't want any of this but
+the `nativeImage` task, possibly replaceable by a plugin listed
+https://plugins.gradle.org/search?term=native-image[here].
+
+https://github.com/micronaut-projects/micronaut-gradle-plugin/blob/v1.2.0/src/main/java/io/micronaut/gradle/graalvm/NativeImageTask.java[micronaut GraalVM task].
+
+Now the question is : which plugin to use in order to replace this Micronaut task?
+From their brief description here are the top four plugins, that may be good candidates,
+but which one ?
+
+I have decided to rule out plugins that downloads a GraalVM distribution,
+regardless the current JDK is already a GraalVM.
+
+* ❌ `com.formkiq.gradle.graalvm-native-plugin` 1.0.1 (11 November 2020)
+* ❌ `com.palantir.graal` 0.7.2 (29 October 2020)
+
+Then let's look at the other two:
+
+* ✔️ https://github.com/mike-neck/graalvm-native-image-plugin[`org.mikeneck.graalvm-native-image`] version 0.8.0 (09 August 2020)
++
+This one appear very configurable, and requires just a few additional configuration,
+that were srt by the micronaut task, like the no fallback.
+
+The official GraalVM plugin, at this moment I didn't found any reference nor sources.
+
+* ❌ `org.graalvm.plugin.native-image` 0.1.0-alpha2 (02 September 2020)
+
+Although, it's likely similar to the current https://www.graalvm.org/reference-manual/native-image/NativeImageMavenPlugin/[GraalVM maven plugin].
+So I'll just skipp this one.
+
+So let's start with `org.mikeneck.graalvm-native-image`, the `nativeImage`
+task will look like:
+
+[source, gradle]
+----
+nativeImage {
+    executableName = "slack"
+    mainClass = application.mainClass.get()
+    graalVmHome = System.getProperty('java.home')
+    arguments(
+            '--no-fallback',
+            "--allow-incomplete-classpath",
+    )
+}
+----
+
+[source, shell]
+----
+$ ls -lah build/native-image/
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   25M bric3 19 Nov 10:58  slack
+----
+
+Better, but when the tool is run, we trip over the usual JCA security services issue
+(https://github.com/oracle/graal/blob/release/graal-vm/20.3/substratevm/JCASecurityServices.md[they are not included by default]).
+
+[source, shell]
+----
+$ build/native-image/slack
+Exception in thread "main" java.lang.InternalError: java.security.NoSuchAlgorithmException: class configured for SSLContext (provider: SunJSSE) cannot be found.
+----
+
+So we need to pass either `--enable-all-security-services` or `--enable-https` arguments.
+
+.With `--enable-all-security-services`
+[source, shell]
+----
+$ ls -lah build/native-image/slack
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   37M bric3 19 Nov 11:01  build/native-image/slack
+----
+
+.With `--enable-https`
+[source, shell]
+----
+$ ls -lah build/native-image/slack
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   38M bric3 19 Nov 11:48  build/native-image/slack
+----
+
+37 MiB and 38 MiB it's a tad more than what we had with the micronaut plugin.
+I'm not sure how micronaut is doing in this regard as the task don't seem to
+pass either of these options.
+That also means that the concrete transitive dependencies in the micronaut bom don't
+really count, probably due to micronaut doing a really fine job there.
+
+The conclusion of this step is that this approach don't work as I would like,
+but it matches what I found
+https://gist.github.com/bric3/a5d18934ed1dc7fde36c48eace70c4f2[early in June 2020 when playing with `SSLPoke`],
+adding JCA services adds around 12 MiB to the native image.
+
+
+== Step 2, reducing  size by removing micrometer dependencies
+
+[source, shell]
+----
+$ ./gradlew :dependencies --configuration runtimeClasspath
+
+> Task :dependencies
+
+------------------------------------------------------------
+Root project
+------------------------------------------------------------
+
+runtimeClasspath - Runtime classpath of source set 'main'.
++--- io.micronaut:micronaut-validation -> 2.1.4
+|    +--- org.slf4j:slf4j-api:1.7.26
+|    +--- io.micronaut:micronaut-inject:2.1.4
+|    |    +--- org.slf4j:slf4j-api:1.7.26
+|    |    +--- javax.annotation:javax.annotation-api:1.3.2
+|    |    +--- javax.inject:javax.inject:1
+|    |    +--- io.micronaut:micronaut-core:2.1.4
+|    |    |    +--- org.slf4j:slf4j-api:1.7.26
+|    |    |    +--- org.reactivestreams:reactive-streams:1.0.3
+|    |    |    \--- com.github.spotbugs:spotbugs-annotations:4.0.3
+|    |    |         \--- com.google.code.findbugs:jsr305:3.0.2
+|    |    \--- org.yaml:snakeyaml:1.26
+|    +--- io.micronaut:micronaut-http:2.1.4
+|    |    +--- org.slf4j:slf4j-api:1.7.26
+|    |    \--- io.micronaut:micronaut-inject:2.1.4 (*)
+|    \--- javax.validation:validation-api:2.0.1.Final
++--- io.micronaut:micronaut-runtime -> 2.1.4
+|    +--- org.slf4j:slf4j-api:1.7.26
+|    +--- io.micronaut:micronaut-http:2.1.4 (*)
+|    +--- io.micronaut:micronaut-inject:2.1.4 (*)
+|    +--- io.micronaut:micronaut-aop:2.1.4
+|    |    +--- org.slf4j:slf4j-api:1.7.26
+|    |    +--- io.micronaut:micronaut-inject:2.1.4 (*)
+|    |    \--- io.micronaut:micronaut-core:2.1.4 (*)
+|    +--- javax.validation:validation-api:2.0.1.Final
+|    +--- com.fasterxml.jackson.core:jackson-databind:2.11.2
+|    |    +--- com.fasterxml.jackson.core:jackson-annotations:2.11.2
+|    |    \--- com.fasterxml.jackson.core:jackson-core:2.11.2
+|    +--- io.reactivex.rxjava2:rxjava:2.2.10
+|    |    \--- org.reactivestreams:reactive-streams:1.0.2 -> 1.0.3
+|    +--- com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.11.2
+|    |    +--- com.fasterxml.jackson.core:jackson-core:2.11.2
+|    |    \--- com.fasterxml.jackson.core:jackson-databind:2.11.2 (*)
+|    \--- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.11.2
+|         +--- com.fasterxml.jackson.core:jackson-annotations:2.11.2
+|         +--- com.fasterxml.jackson.core:jackson-core:2.11.2
+|         \--- com.fasterxml.jackson.core:jackson-databind:2.11.2 (*)
++--- info.picocli:picocli -> 4.5.1
++--- io.micronaut.picocli:micronaut-picocli -> 3.0.0
+|    +--- io.micronaut:micronaut-bom:2.0.1 -> 2.1.4
+|    |    +--- io.micronaut.views:micronaut-views-bom:2.0.1
+|    |    +--- io.micronaut.groovy:micronaut-groovy-bom:2.1.0
+|    |    |    \--- org.codehaus.groovy:groovy-bom:3.0.3
+|    |    +--- io.micronaut.test:micronaut-test-bom:2.1.1
+|    |    |    +--- org.junit:junit-bom:5.7.0
+|    |    |    \--- org.spockframework:spock-bom:2.0-M3-groovy-3.0
+|    |    +--- io.micronaut.data:micronaut-data-bom:2.1.1
+|    |    +--- io.micronaut.oraclecloud:micronaut-oraclecloud-bom:1.0.0
+|    |    +--- io.netty:netty-bom:4.1.54.Final
+|    |    +--- io.ktor:ktor-bom:1.4.0
+|    |    +--- org.codehaus.groovy:groovy-bom:3.0.3
+|    |    +--- io.micrometer:micrometer-bom:1.5.5
+|    |    +--- org.junit:junit-bom:5.7.0
+|    |    +--- com.fasterxml.jackson:jackson-bom:2.11.2
+|    |    |    +--- com.fasterxml.jackson.core:jackson-databind:2.11.2 (c)
+|    |    |    +--- com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.11.2 (c)
+|    |    |    +--- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.11.2 (c)
+|    |    |    +--- com.fasterxml.jackson.core:jackson-annotations:2.11.2 (c)
+|    |    |    \--- com.fasterxml.jackson.core:jackson-core:2.11.2 (c)
+|    |    +--- io.grpc:grpc-bom:1.32.1
+|    |    +--- com.google.protobuf:protobuf-bom:3.13.0
+|    |    +--- io.micronaut:micronaut-inject:2.1.4 (c)
+|    |    +--- io.micronaut:micronaut-runtime:2.1.4 (c)
+|    |    +--- io.micronaut:micronaut-validation:2.1.4 (c)
+|    |    +--- javax.annotation:javax.annotation-api:1.3.2 (c)
+|    |    +--- io.micronaut.picocli:micronaut-picocli:3.0.0 (c)
+|    |    +--- info.picocli:picocli:4.5.1 (c)
+|    |    +--- ch.qos.logback:logback-classic:1.2.3 (c)
+|    |    +--- org.slf4j:slf4j-api:1.7.26 (c)
+|    |    +--- io.micronaut:micronaut-core:2.1.4 (c)
+|    |    +--- org.yaml:snakeyaml:1.26 (c)
+|    |    +--- io.micronaut:micronaut-http:2.1.4 (c)
+|    |    +--- io.micronaut:micronaut-aop:2.1.4 (c)
+|    |    +--- javax.validation:validation-api:2.0.1.Final (c)
+|    |    +--- io.reactivex.rxjava2:rxjava:2.2.10 (c)
+|    |    +--- org.reactivestreams:reactive-streams:1.0.3 (c)
+|    |    +--- com.github.spotbugs:spotbugs-annotations:4.0.3 (c)
+|    |    \--- com.google.code.findbugs:jsr305:3.0.2 (c)
+|    +--- io.micronaut:micronaut-inject:2.0.1 -> 2.1.4 (*)
+|    +--- io.micronaut:micronaut-runtime:2.0.1 -> 2.1.4 (*)
+|    \--- info.picocli:picocli:4.5.1
++--- javax.annotation:javax.annotation-api -> 1.3.2
++--- io.micronaut:micronaut-inject -> 2.1.4 (*)
++--- io.micronaut:micronaut-bom:2.1.4 (*)
+\--- ch.qos.logback:logback-classic -> 1.2.3
+     +--- ch.qos.logback:logback-core:1.2.3
+     \--- org.slf4j:slf4j-api:1.7.25 -> 1.7.26
+
+(c) - dependency constraint
+(*) - dependencies omitted (listed previously)
+
+A web-based, searchable dependency report is available by adding the --scan option.
+
+BUILD SUCCESSFUL in 1s
+1 actionable task: 1 executed
+----
+
+
+Even if the project only added the asciidoctor and graalvm features,
+there's a few dependencies by default.
+
+Removing all explicit depencencies
+
+.removing explicit depdencies
+[source, diff]
+----
+     annotationProcessor("info.picocli:picocli-codegen:4.2.0")
+     compileOnly("org.graalvm.nativeimage:svm")
+-    implementation("io.micronaut:micronaut-validation")
+-    implementation("io.micronaut:micronaut-runtime")
+     implementation("info.picocli:picocli")
+-    implementation("io.micronaut.picocli:micronaut-picocli")
+-    implementation("javax.annotation:javax.annotation-api")
+----
+
+
+[source, shell]
+----
+$ ./gradlew :dependencies --configuration runtimeClasspath
+
+> Task :dependencies
+
+------------------------------------------------------------
+Root project
+------------------------------------------------------------
+
+runtimeClasspath - Runtime classpath of source set 'main'.
++--- info.picocli:picocli -> 4.5.1
++--- io.micronaut:micronaut-inject -> 2.1.4
+|    +--- org.slf4j:slf4j-api:1.7.26
+|    +--- javax.annotation:javax.annotation-api:1.3.2
+|    +--- javax.inject:javax.inject:1
+|    +--- io.micronaut:micronaut-core:2.1.4
+|    |    +--- org.slf4j:slf4j-api:1.7.26
+|    |    +--- org.reactivestreams:reactive-streams:1.0.3
+|    |    \--- com.github.spotbugs:spotbugs-annotations:4.0.3
+|    |         \--- com.google.code.findbugs:jsr305:3.0.2
+|    \--- org.yaml:snakeyaml:1.26
++--- io.micronaut:micronaut-bom:2.1.4
+|    +--- io.micronaut.views:micronaut-views-bom:2.0.1
+|    +--- io.micronaut.groovy:micronaut-groovy-bom:2.1.0
+|    |    \--- org.codehaus.groovy:groovy-bom:3.0.3
+|    +--- io.micronaut.test:micronaut-test-bom:2.1.1
+|    |    +--- org.junit:junit-bom:5.7.0
+|    |    \--- org.spockframework:spock-bom:2.0-M3-groovy-3.0
+|    +--- io.micronaut.data:micronaut-data-bom:2.1.1
+|    +--- io.micronaut.oraclecloud:micronaut-oraclecloud-bom:1.0.0
+|    +--- io.netty:netty-bom:4.1.54.Final
+|    +--- io.ktor:ktor-bom:1.4.0
+|    +--- org.codehaus.groovy:groovy-bom:3.0.3
+|    +--- io.micrometer:micrometer-bom:1.5.5
+|    +--- org.junit:junit-bom:5.7.0
+|    +--- com.fasterxml.jackson:jackson-bom:2.11.2
+|    +--- io.grpc:grpc-bom:1.32.1
+|    +--- com.google.protobuf:protobuf-bom:3.13.0
+|    +--- io.micronaut:micronaut-inject:2.1.4 (c)
+|    +--- info.picocli:picocli:4.5.1 (c)
+|    +--- ch.qos.logback:logback-classic:1.2.3 (c)
+|    +--- org.slf4j:slf4j-api:1.7.26 (c)
+|    +--- javax.annotation:javax.annotation-api:1.3.2 (c)
+|    +--- io.micronaut:micronaut-core:2.1.4 (c)
+|    +--- org.yaml:snakeyaml:1.26 (c)
+|    +--- org.reactivestreams:reactive-streams:1.0.3 (c)
+|    +--- com.github.spotbugs:spotbugs-annotations:4.0.3 (c)
+|    \--- com.google.code.findbugs:jsr305:3.0.2 (c)
+\--- ch.qos.logback:logback-classic -> 1.2.3
+     +--- ch.qos.logback:logback-core:1.2.3
+     \--- org.slf4j:slf4j-api:1.7.25 -> 1.7.26
+
+(c) - dependency constraint
+(*) - dependencies omitted (listed previously)
+
+A web-based, searchable dependency report is available by adding the --scan option.
+
+BUILD SUCCESSFUL in 1s
+1 actionable task: 1 executed
+----
+
+This leads to quite few ~ 16 MiB saved :
+
+.lighter native image
+[source, shell]
+----
+❯ ./gradlew nativeImage
+
+> Task :compileJava
+Note: ReflectConfigGen writing to: CLASS_OUTPUT/META-INF/native-image/picocli-generated/reflect-config.json
+Note: ResourceConfigGen writing to: CLASS_OUTPUT/META-INF/native-image/picocli-generated/resource-config.json
+Note: ProxyConfigGen writing to: CLASS_OUTPUT/META-INF/native-image/picocli-generated/proxy-config.json
+
+> Task :nativeImage
+[application:16014]    classlist:   1,525.12 ms,  0.96 GB
+[application:16014]        (cap):   3,379.97 ms,  0.96 GB
+[application:16014]        setup:   4,416.23 ms,  0.96 GB
+[application:16014]     (clinit):     530.59 ms,  4.62 GB
+[application:16014]   (typeflow):  14,808.15 ms,  4.62 GB
+[application:16014]    (objects):  13,375.10 ms,  4.62 GB
+[application:16014]   (features):     912.96 ms,  4.62 GB
+[application:16014]     analysis:  30,346.45 ms,  4.62 GB
+[application:16014]     universe:     926.49 ms,  4.62 GB
+[application:16014]      (parse):   4,099.46 ms,  4.62 GB
+[application:16014]     (inline):   7,206.29 ms,  5.38 GB
+[application:16014]    (compile):  23,836.20 ms,  5.20 GB
+[application:16014]      compile:  37,356.28 ms,  5.20 GB
+[application:16014]        image:   3,355.86 ms,  5.20 GB
+[application:16014]        write:     960.86 ms,  5.20 GB
+[application:16014]      [total]:  79,031.79 ms,  5.20 GB
+Native Image written to: /Users/bric3/opensource/slack-set-profile/build/native-image/application
+
+BUILD SUCCESSFUL in 1m 22s
+3 actionable tasks: 2 executed, 1 up-to-date
+❯ ls -lah build/native-image/application
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   38M bric3 18 Nov 23:04  build/native-image/application
+----
+
 == Step 1, adds simple HTTP read/write operation
 
 The goal is to read or write to the slack user profile,
