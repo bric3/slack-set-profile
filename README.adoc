@@ -1,5 +1,80 @@
 = GraalVM cli-app toy that sets slack profile name
 
+
+== Step 4, try Jake Wharton approach with r8
+
+.jar and shadowed jar sizes
+[source, shell]
+----
+$ ./gradlew assemble
+
+BUILD SUCCESSFUL in 2s
+10 actionable tasks: 4 executed, 6 up-to-date
+
+$ ls -lh build/libs/
+Permissions Size User  Date Modified Name
+.rw-r--r--  1.2M bric3 19 Nov 14:36  slack-set-profile-0.1-all.jar
+.rw-r--r--  4.8k bric3 19 Nov  9:43  slack-set-profile-0.1.jar
+----
+
+https://jakewharton.com/shrinking-a-kotlin-binary/
+https://github.com/JakeWharton/dependency-tree-diff
+https://r8-docs.preemptive.com/
+https://www.guardsquare.com/en/products/proguard/manual/examples
+
+
+[source, shell]
+----
+$ ./gradlew r8Jar
+
+BUILD SUCCESSFUL in 10s
+4 actionable tasks: 1 executed, 3 up-to-date
+
+$ ls -lh build/libs/
+Permissions Size User  Date Modified Name
+.rw-r--r--@ 597k bric3 19 Nov 17:29  slack-set-profile-0.1-r8.jar
+----
+
+The first thing to notice is the reduced size for jar that was _minified_
+by R8.
+
+Now the issue is to pass this minified jar to `native-image`, gradle plugin
+usually pass a main class and a classpath. The custom `r8` task is a `JavaExec`
+and cannot be used directly with `nativeImage.jarTask`.
+
+
+[source, shell]
+----
+$ ./gradlew clean nativeImage
+
+> Task :nativeImage
+[slack:51762]    classlist:   1,175.12 ms,  0.96 GB
+[slack:51762]        (cap):   2,750.34 ms,  0.96 GB
+[slack:51762]        setup:   3,886.57 ms,  0.96 GB
+[slack:51762]     (clinit):     458.99 ms,  2.32 GB
+[slack:51762]   (typeflow):  12,516.27 ms,  2.32 GB
+[slack:51762]    (objects):  13,514.93 ms,  2.32 GB
+[slack:51762]   (features):     742.85 ms,  2.32 GB
+[slack:51762]     analysis:  27,860.38 ms,  2.32 GB
+[slack:51762]     universe:     924.52 ms,  2.32 GB
+[slack:51762]      (parse):   3,451.93 ms,  3.16 GB
+[slack:51762]     (inline):   5,874.31 ms,  4.05 GB
+[slack:51762]    (compile):  23,216.78 ms,  4.97 GB
+[slack:51762]      compile:  34,321.70 ms,  4.97 GB
+[slack:51762]        image:   2,884.10 ms,  4.97 GB
+[slack:51762]        write:     764.90 ms,  4.97 GB
+[slack:51762]      [total]:  71,971.55 ms,  4.97 GB
+
+BUILD SUCCESSFUL in 1m 22s
+9 actionable tasks: 6 executed, 2 from cache, 1 up-to-date
+
+$ ls -lh build/native-image/slack
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   36M bric3 19 Nov 19:00  build/native-image/slack
+----
+
+Still 36 MiB, sad
+
 == Step 3, reducing size by removing micrometer plugin
 
 As useful as micrometer, the plugin still adds a _bill-of-materials_,
@@ -37,7 +112,7 @@ regardless the current JDK is already a GraalVM.
 
 Then let's look at the other two:
 
-* ✔️ https://github.com/mike-neck/graalvm-native-image-plugin[`org.mikeneck.graalvm-native-image`] version 0.8.0 (09 August 2020)
+* ✅ https://github.com/mike-neck/graalvm-native-image-plugin[`org.mikeneck.graalvm-native-image`] version 0.8.0 (09 August 2020)
 +
 This one appear very configurable, and requires just a few additional configuration,
 that were srt by the micronaut task, like the no fallback.
