@@ -1,7 +1,8 @@
 plugins {
     id "org.asciidoctor.jvm.convert" version "3.2.0"
     id "com.github.johnrengelman.shadow" version "6.1.0"
-    id "io.micronaut.application" version '1.2.0'
+    id "application"
+    id "org.mikeneck.graalvm-native-image" version "0.8.0"
 }
 
 version "0.1"
@@ -12,26 +13,29 @@ repositories {
     mavenCentral()
 }
 
-micronaut {
-    testRuntime("junit5")
-    processing {
-        incremental true
-        annotations "slack.set.profile.*"
-    }
+application{
+    mainClass.set("slack.set.profile.SlackSetProfileCommand")
 }
 
 nativeImage {
-    imageName = "slack"
+    executableName = "slack"
+    mainClass = application.mainClass.get()
+    graalVmHome = System.getProperty('java.home')
+    arguments(
+            '--no-fallback',
+            "--allow-incomplete-classpath", // usually a bad idea
+            "--enable-https",
+    )
 }
 
 dependencies {
-    annotationProcessor("info.picocli:picocli-codegen:4.2.0")
-    compileOnly("org.graalvm.nativeimage:svm")
-    implementation("info.picocli:picocli")
-    runtimeOnly("ch.qos.logback:logback-classic")
+    annotationProcessor("info.picocli:picocli-codegen:4.5.2")
+    
+    compileOnly("org.graalvm.nativeimage:svm:20.3.0")
+    implementation("info.picocli:picocli:4.5.1")
+    implementation("ch.qos.logback:logback-classic:1.2.3")
 }
 
-mainClassName = "slack.set.profile.SlackSetProfileCommand"
 java {
     sourceCompatibility = JavaVersion.toVersion('11')
     targetCompatibility = JavaVersion.toVersion('11')

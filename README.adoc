@@ -1,5 +1,116 @@
 = GraalVM cli-app toy that sets slack profile name
 
+== Step 3, reducing size by removing micrometer plugin
+
+As useful as micrometer, the plugin still adds a _bill-of-materials_,
+however this bom actually depends on real Java dependencies.
+
+.io.micronaut.library
+> The Micronaut library plugin applies the following modifications to the build:
+>
+> * Applies the Micronaut Bill of Materials (BOM)
+> * Applies the java-library plugin
+> * Configures annotation processing for the current language (Groovy, Java or Kotlin)
+
+.io.micronaut.application
+> The Micronaut application plugin extends the Micronaut Library plugin and adds the following customizations:
+> 
+> * Instead of the java-library plugin the plugin applies the Gradle application plugin.
+> * If the current JVM is GraalVM configures a nativeImage task
+> * Correctly configures Gradle for continuous build
+
+For this toy application, I don't want any of this but
+the `nativeImage` task, possibly replaceable by a plugin listed
+https://plugins.gradle.org/search?term=native-image[here].
+
+https://github.com/micronaut-projects/micronaut-gradle-plugin/blob/v1.2.0/src/main/java/io/micronaut/gradle/graalvm/NativeImageTask.java[micronaut GraalVM task].
+
+Now the question is : which plugin to use in order to replace this Micronaut task?
+From their brief description here are the top four plugins, that may be good candidates,
+but which one ?
+
+I have decided to rule out plugins that downloads a GraalVM distribution,
+regardless the current JDK is already a GraalVM.
+
+* ❌ `com.formkiq.gradle.graalvm-native-plugin` 1.0.1 (11 November 2020)
+* ❌ `com.palantir.graal` 0.7.2 (29 October 2020)
+
+Then let's look at the other two:
+
+* ✔️ https://github.com/mike-neck/graalvm-native-image-plugin[`org.mikeneck.graalvm-native-image`] version 0.8.0 (09 August 2020)
++
+This one appear very configurable, and requires just a few additional configuration,
+that were srt by the micronaut task, like the no fallback.
+
+The official GraalVM plugin, at this moment I didn't found any reference nor sources.
+
+* ❌ `org.graalvm.plugin.native-image` 0.1.0-alpha2 (02 September 2020)
+
+Although, it's likely similar to the current https://www.graalvm.org/reference-manual/native-image/NativeImageMavenPlugin/[GraalVM maven plugin].
+So I'll just skipp this one.
+
+So let's start with `org.mikeneck.graalvm-native-image`, the `nativeImage`
+task will look like:
+
+[source, gradle]
+----
+nativeImage {
+    executableName = "slack"
+    mainClass = application.mainClass.get()
+    graalVmHome = System.getProperty('java.home')
+    arguments(
+            '--no-fallback',
+            "--allow-incomplete-classpath",
+    )
+}
+----
+
+[source, shell]
+----
+$ ls -lah build/native-image/
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   25M bric3 19 Nov 10:58  slack
+----
+
+Better, but when the tool is run, we trip over the usual JCA security services issue
+(https://github.com/oracle/graal/blob/release/graal-vm/20.3/substratevm/JCASecurityServices.md[they are not included by default]).
+
+[source, shell]
+----
+$ build/native-image/slack
+Exception in thread "main" java.lang.InternalError: java.security.NoSuchAlgorithmException: class configured for SSLContext (provider: SunJSSE) cannot be found.
+----
+
+So we need to pass either `--enable-all-security-services` or `--enable-https` arguments.
+
+.With `--enable-all-security-services`
+[source, shell]
+----
+$ ls -lah build/native-image/slack
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   37M bric3 19 Nov 11:01  build/native-image/slack
+----
+
+.With `--enable-https`
+[source, shell]
+----
+$ ls -lah build/native-image/slack
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   38M bric3 19 Nov 11:48  build/native-image/slack
+----
+
+37 MiB and 38 MiB it's a tad more than what we had with the micronaut plugin.
+I'm not sure how micronaut is doing in this regard as the task don't seem to
+pass either of these options.
+That also means that the concrete transitive dependencies in the micronaut bom don't
+really count, probably due to micronaut doing a really fine job there.
+
+The conclusion of this step is that this approach don't work as I would like,
+but it matches what I found
+https://gist.github.com/bric3/a5d18934ed1dc7fde36c48eace70c4f2[early in June 2020 when playing with `SSLPoke`],
+adding JCA services adds around 12 MiB to the native image.
+
+
 == Step 2, reducing  size by removing micrometer dependencies
 
 [source, shell]
