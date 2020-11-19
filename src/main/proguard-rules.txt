@@ -1,0 +1,40 @@
+-dontobfuscate
+-allowaccessmodification
+-keepattributes SourceFile, LineNumberTable, RuntimeVisibleAnnotations
+
+
+-dontwarn javax.annotation.**
+-dontwarn org.codehaus.groovy.**
+-dontwarn groovy.**
+-dontwarn javax.servlet.**
+-dontwarn javax.mail.**
+
+# cli app
+-keep class slack.set.profile.SlackSetProfileCommand {
+    public static void main(java.lang.String[]);
+}
+
+# picocli
+-keep class picocli.CommandLine.** { *;}
+-keep @picocli.CommandLine$* class * { *; }
+-keepclassmembers class ** {
+    @picocli.CommandLine$* public protected private <methods>;
+}
+-keepclassmembers class * {
+    @picocli.CommandLine$* public protected private <fields>;
+}
+-keepclassmembers class ** {
+    @picocli.CommandLine$* <init>(...);
+}
+
+# logback
+-keep class ch.qos.logback.core.ConsoleAppender { *; }
+-keep class ch.qos.logback.classic.encoder.PatternLayoutEncoder { *; }
+-keep class ch.qos.logback.classic.pattern.LineSeparatorConverter { *; }
+-keep class ch.qos.logback.classic.pattern.MessageConverter { *; }
+-keep class ch.qos.logback.classic.pattern.LoggerConverter { *; }
+-keep class ch.qos.logback.classic.pattern.ThreadConverter { *; }
+-keep class ch.qos.logback.classic.pattern.DateConverter { *; }
+-keep class ch.qos.logback.classic.pattern.LevelConverter { *; }
+-keep class ch.qos.logback.classic.pattern.color.HighlightingCompositeConverter { *; }
+-keep class ch.qos.logback.core.pattern.color.* { *; }

@@ -11,13 +11,54 @@ group "slack.set.profile"
 repositories {
     jcenter()
     mavenCentral()
+    google()
 }
 
-application{
+configurations {
+    r8
+}
+
+application {
     mainClass.set("slack.set.profile.SlackSetProfileCommand")
 }
 
+shadowJar {
+    mainClassName = application.mainClass.get()
+}
+
+def r8File = new File("$buildDir/libs/$archivesBaseName-$version-r8.jar")
+
+task r8(type: JavaExec) {
+    dependsOn(configurations.named('runtimeClasspath'))
+    dependsOn(shadowJar)
+    inputs.files(shadowJar.archiveFile.get(), 'src/main/proguard-rules.txt')
+    outputs.file(r8File)
+
+    classpath(configurations.r8)
+    main = 'com.android.tools.r8.R8'
+    // usage help here : https://r8.googlesource.com/r8/+/refs/heads/2.1/src/main/java/com/android/tools/r8/R8CommandParser.java#63
+    // proguard configuration help https://www.guardsquare.com/en/products/proguard/manual/examples
+    args = [
+            '--release',
+            '--classfile',
+            '--output', r8File.toString(),
+            '--pg-conf', 'src/main/proguard-rules.txt',
+            '--lib', System.properties['java.home'].toString()
+    ]
+    doFirst {
+        args += shadowJar.archiveFile.get()
+    }
+}
+
+// dumb task to be able to refer to a Jar task to get the r8 jar
+task r8Jar(type: Jar, dependsOn: r8) {
+    from {
+        zipTree r8.outputs.files.first()
+    }
+}
+
 nativeImage {
+    jarTask = r8Jar
     executableName = "slack"
     mainClass = application.mainClass.get()
     graalVmHome = System.getProperty('java.home')
@@ -34,6 +75,8 @@ dependencies {
     compileOnly("org.graalvm.nativeimage:svm:20.3.0")
     implementation("info.picocli:picocli:4.5.1")
     implementation("ch.qos.logback:logback-classic:1.2.3")
+
+    r8 'com.android.tools:r8:2.1.67'
 }
 
 java {
