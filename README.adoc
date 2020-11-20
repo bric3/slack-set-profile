@@ -1,5 +1,118 @@
 = GraalVM cli-app toy that sets slack profile name
 
+
+== Step 6, upx
+
+The last trick I can think of is using `upx` on the native executable.
+Unfortunately this doesn't work on macOs, there's a
+https://github.com/oracle/graal/issues/2830[closed issue] that
+is supposed to be fixed in GraalVM 2020.3.0, but apparently this is still
+an issue on macOs (
+https://github.com/oracle/graal/issues/2830#issuecomment-731253931[[1\]]
+https://github.com/oracle/graal/issues/2830#issuecomment-731262951[[2\]]
+https://github.com/oracle/graal/issues/2830#issuecomment-731277407[[3\]]).
+
+The upx step has only been tested on linux, more specifically Oracle Linux
+with a graalvm install.
+
+.GraalVM 2020.3.0 based Dockerfile
+[source,dockerfile]
+----
+FROM oracle/graalvm-ce:20.3.0-java11
+
+RUN yum install -y -q xz \
+  && curl -sL -o - https://github.com/upx/upx/releases/download/v3.96/upx-3.96-amd64_linux.tar.xz | tar xJ \
+  && gu install native-image \
+  && mkdir /src
+
+VOLUME /src
+WORKDIR /src
+
+CMD ["bash"]
+----
+
+Then quickly run the `Dockerfile` with the following command, the build
+is very long due to the yum install of `xz`.
+
+[source, shell]
+----
+docker run -it --rm \
+  --mount=type=bind,source=$(pwd),target=/src \
+  $(docker build -q -f Dockerfile .)
+----
+
+Then run in the bash command of this container :
+
+[source, shell]
+----
+bash-4.2# ./gradlew nativeImage
+Downloading https://services.gradle.org/distributions/gradle-6.7-bin.zip
+.........10%..........20%..........30%..........40%..........50%.........60%..........70%..........80%..........90%..........100%
+
+Welcome to Gradle 6.7!
+
+Here are the highlights of this release:
+ - File system watching is ready for production use
+ - Declare the version of Java your build requires
+ - Java 15 support
+
+For more details see https://docs.gradle.org/6.7/release-notes.html
+
+Starting a Gradle Daemon (subsequent builds will be faster)
+
+> Task :nativeImage
+[slack:149]    classlist:   2,667.03 ms,  0.96 GB
+[slack:149]        (cap):     945.08 ms,  0.96 GB
+[slack:149]        setup:   2,864.99 ms,  0.96 GB
+[slack:149]     (clinit):     659.93 ms,  1.85 GB
+[slack:149]   (typeflow):  19,460.83 ms,  1.85 GB
+[slack:149]    (objects):  20,409.54 ms,  1.85 GB
+[slack:149]   (features):   1,955.89 ms,  1.85 GB
+[slack:149]     analysis:  43,560.66 ms,  1.85 GB
+[slack:149]     universe:   1,384.76 ms,  1.85 GB
+[slack:149]      (parse):   6,000.43 ms,  1.85 GB
+[slack:149]     (inline):   9,922.65 ms,  2.70 GB
+[slack:149]    (compile):  37,868.18 ms,  2.75 GB
+[slack:149]      compile:  56,263.76 ms,  2.81 GB
+[slack:149]        image:   4,536.83 ms,  2.80 GB
+[slack:149]        write:   3,165.21 ms,  2.80 GB
+[slack:149]      [total]: 114,740.56 ms,  2.80 GB
+
+BUILD SUCCESSFUL in 2m 24s
+5 actionable tasks: 1 executed, 4 up-to-date
+
+bash-4.2# /upx-3.96-amd64_linux/upx -o build/native-image/{slack-upx,slack}
+                       Ultimate Packer for eXecutables
+                          Copyright (C) 1996 - 2020
+UPX 3.96        Markus Oberhumer, Laszlo Molnar & John Reiser   Jan 23rd 2020
+
+        File size         Ratio      Format      Name
+   --------------------   ------   -----------   -----------
+  33437936 ->   9640936   28.83%   linux/amd64   slack-upx
+
+Packed 1 file.
+bash-4.2# ls -lah build/native-image
+total 43M
+drwxr-xr-x 4 root root  128 Nov 20 17:10 .
+drwxr-xr-x 8 root root  256 Nov 20 17:02 ..
+-rwxr-xr-x 1 root root  32M Nov 20 17:08 slack
+-rwxr-xr-x 1 root root 9.2M Nov 20 17:08 slack-upx
+bash-4.2# build/native-image/slack-upx
+build/native-image/slack-upx -t read-profile
+Slack Oauth token
+(GET https://slack.com/api/users.profile.get?pretty=1) 200
+{
+    "ok": true,
+    "profile": {
+        "real_name": "\u0190\u0254\u0131\u0279q",
+        "real_name_normalized": "\u0190\u0254i\u0279q",
+...
+----
+
+So with `upx` the executable file size dropped to less than 10 MiB. This
+compactness is way better for the distribution of a small command line tool.
+
+
 == Step 5, remove libraries
 
 First let's remove logback, replacing the logging calls, by a simpler
@@ -104,7 +217,8 @@ Permissions Size User  Date Modified Name
 It is still over 30 MiB ! This is definitely a lot for binary that is just
 doing a single HTTP call per command (it doesn't even do JSON serialization
 or deserialization).
-
+However, the jar file sizes are merely 4 KiB. Shadowjar and R8 tasks could even be
+removed.
 
 == Step 4, try Jake Wharton approach with r8
 
