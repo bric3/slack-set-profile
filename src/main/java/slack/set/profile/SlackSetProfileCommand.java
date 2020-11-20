@@ -1,12 +1,5 @@
 package slack.set.profile;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import picocli.CommandLine;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
-import picocli.CommandLine.ScopeType;
-
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -16,38 +9,70 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Deque;
+import java.util.Scanner;
 
-@Command(
-        name = "slack-set-profile",
-        header = {"", "@|red Slack profile red|@"},
-        description = "...",
-        mixinStandardHelpOptions = true
-)
 public class SlackSetProfileCommand implements Runnable {
 
-    private static final Logger log = LoggerFactory.getLogger("http");
     private final HttpClient httpClient = HttpClient.newBuilder().build();
 
 
-    @Option(names = {"-t", "--token"},
-            paramLabel = "TOKEN",
-            required = true,
-            interactive = true,
-            arity = "0..1", // optionally interactive
-            description = "Slack Oauth token",
-            scope = ScopeType.INHERIT)
     String token;
 
     public static void main(String[] args) {
-        System.exit(new CommandLine(new SlackSetProfileCommand())
-                            .execute(args));
+        System.exit(new SlackSetProfileCommand().execute(args));
+    }
+
+    private int execute(String[] argArray) {
+        final Deque<String> args = new ArrayDeque<>(Arrays.asList(argArray));
+
+        boolean tokenOption = false;
+        Runnable command = this::run;
+        String arg;
+
+        while ((arg = args.poll()) != null) {
+            switch (arg) {
+                case "-t":
+                case "--token":
+                    tokenOption = true;
+                    break;
+                case "read-profile":
+                    command = this::readUserProfile;
+                    break;
+                case "write-profile":
+                    command = this::writeUserProfile;
+                    break;
+                default:
+                    token = arg;
+                    break;
+            }
+        }
+
+        if (!tokenOption) {
+            System.out.println("Missing required option: --token");
+            return 1;
+        }
+
+        if (token == null) {
+            if (System.console() != null) {
+                token = new String(System.console().readPassword("Slack Oauth token"));
+            } else {
+                System.out.print("Slack Oauth token: ");
+                Scanner in = new Scanner(System.in);
+                token = in.nextLine();
+            }
+        }
+
+        command.run();
+        return 0;
     }
 
     public void run() {
     }
 
 
-    @Command(name = "read-profile", description = "Read slack user profile")
     void readUserProfile() {
         try {
             final HttpResponse<String> httpResponse = httpClient.send(
@@ -59,15 +84,14 @@ public class SlackSetProfileCommand implements Runnable {
                     BodyHandlers.ofString()
             );
 
-            log.info("{}", httpResponse);
-            log.info("{}", httpResponse.headers());
-            log.info("{}", httpResponse.body());
+            System.out.printf("%s%n", httpResponse);
+            System.out.printf("%s%n", httpResponse.headers());
+            System.out.printf("%s%n", httpResponse.body());
         } catch (IOException | InterruptedException e) {
-            log.error("Error while reaching slack.com/api", e);
+            System.err.printf("Error while reaching slack.com/api: %s%n", e);
         }
     }
 
-    @Command(name = "write-profile", description = "Write slack user profile")
     void writeUserProfile() {
         try {
             final HttpResponse<String> httpResponse = httpClient.send(
@@ -75,7 +99,7 @@ public class SlackSetProfileCommand implements Runnable {
                                .POST(BodyPublishers.ofString(
                                        "{\n" +
                                        "    \"profile\": {\n" +
-                                       "        \"real_name\": \"bric3\",\n" +
+                                       "        \"real_name\": \"Ɛɔıɹq\",\n" +
                                        "        \"status_text\": \"graalvm\",\n" +
                                        "        \"status_emoji\": \":allthethings:\",\n" +
                                        "        \"status_expiration\": " + Instant.now().plus(10, ChronoUnit.MINUTES).getEpochSecond() + "\n" +
@@ -88,11 +112,11 @@ public class SlackSetProfileCommand implements Runnable {
                     BodyHandlers.ofString()
             );
 
-            log.info("{}", httpResponse);
-            log.info("{}", httpResponse.headers());
-            log.info("{}", httpResponse.body());
+            System.out.printf("%s%n", httpResponse);
+            System.out.printf("%s%n", httpResponse.headers());
+            System.out.printf("%s%n", httpResponse.body());
         } catch (IOException | InterruptedException e) {
-            log.error("Error while reaching slack.com/api", e);
+            System.err.printf("Error while reaching slack.com/api: %s%n", e);
         }
     }
 }
