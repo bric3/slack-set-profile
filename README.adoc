@@ -1,6 +1,59 @@
 = GraalVM cli-app toy that sets slack profile name
 
 
+== Step 7, upx on binary of step 1
+
+Let's try `upx` on the binary that was produced in step 1.
+
+.git history
+[source]
+----
+...
+* a208499 2020-11-18 21:38 G Document step 1 with slack read/rite operations (merged in #1)  brice.dutheil@gmail.com
+*   3a821c3 2020-11-18 21:29 E Merge pull request #1  brice.dutheil@gmail.com
+|\
+| * a96a4bf 2020-11-18 19:25 G Adds write slack profile  brice.dutheil@gmail.com
+| * e1d6a61 2020-11-18 17:37 G Adds reads slack profile  brice.dutheil@gmail.com
+* | 8e0d529 2020-11-18 21:27 G Upgrade micronaut to 2.1.4  brice.dutheil@gmail.com
+|/
+* eb50d42 2020-11-18 11:38 G GraalVM commandline walking skeleton (wit micronaut 2)  brice.dutheil@gmail.com
+(END)
+----
+
+----
+$ git diff --binary HEAD a208499 | git apply
+$ git checkout HEAD -- Dockerfile
+$ git checkout HEAD -- README.adoc
+$ git add src/main/resources/logback.xml
+$ git add -u
+$ git commit --message="Revert changes from step 6 to step 2"
+[upx-micronaut 80ffddc] Revert changes from step 6 to step 2
+ 4 files changed, 66 insertions(+), 114 deletions(-)
+ delete mode 100644 src/main/proguard-rules.txt
+ create mode 100644 src/main/resources/logback.xml
+----
+
+Then let's try again `upx`
+
+[docker, shell]
+----
+❯ docker run -it --rm \
+  --mount=type=bind,source=$(pwd),target=/src \
+  $(docker build -q -f Dockerfile .)
+bash-4.2# ./gradlew clean nativeImage \
+  && /upx-3.96-amd64_linux/upx -o build/native-image/{slack-upx,slack} \
+  && ls -lh build/native-image/
+...
+total 69M
+-rwxr-xr-x 1 root root 53M Nov 20 18:09 application
+-rwxr-xr-x 1 root root 15M Nov 20 18:09 slack-upx
+----
+
+Thanks to `upx`, this time we go from 53 MiB to 15 MiB, I persist to think
+it's still a bit too much for an application that barely perform a single HTTP
+request, but it is way more acceptable in term of distribution.
+
+
 == Step 6, upx
 
 The last trick I can think of is using `upx` on the native executable.
