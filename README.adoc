@@ -21,7 +21,89 @@ Permissions Size User  Date Modified Name
 
 There's definitively an improvement, but this only gained 5 MiB.
 
+Ok let's try with by removing picocli. At this time the command line
+arguments are very simple : two subcommands, one option that takes a
+password or not, so it's easy to write with vanilla Java.
 
+.Parsing the arguments
+[source, java, role="primary"]
+----
+while ((arg = args.poll()) != null) {
+    switch (arg) {
+        case "-t":
+        case "--token":
+            tokenOption = true;
+            break;
+        case "read-profile":
+            command = this::readUserProfile;
+            break;
+        case "write-profile":
+            command = this::writeUserProfile;
+            break;
+        default:
+            token = arg;
+            break;
+    }
+}
+----
+
+.Reading the password on stdin
+[source, java, role="secondary"]
+----
+if (token == null) {
+    if (System.console() != null) {
+        token = new String(System.console().readPassword("Slack Oauth token"));
+    } else {
+        System.out.print("Slack Oauth token: ");
+        Scanner in = new Scanner(System.in);
+        token = in.nextLine();
+    }
+}
+----
+
+Let's see what it means in the resulting size
+
+[source, shell]
+----
+$ ./gradlew nativeImage
+Starting a Gradle Daemon, 8 incompatible and 1 stopped Daemons could not be reused, use --status for details
+
+> Task :nativeImage
+[slack:72428]    classlist:   1,260.47 ms,  0.96 GB
+[slack:72428]        (cap):   3,101.18 ms,  0.96 GB
+[slack:72428]        setup:   6,799.68 ms,  0.96 GB
+[slack:72428]     (clinit):     532.58 ms,  3.21 GB
+[slack:72428]   (typeflow):  14,209.68 ms,  3.21 GB
+[slack:72428]    (objects):  12,123.84 ms,  3.21 GB
+[slack:72428]   (features):     746.32 ms,  3.21 GB
+[slack:72428]     analysis:  28,292.35 ms,  3.21 GB
+[slack:72428]     universe:     998.86 ms,  3.21 GB
+[slack:72428]      (parse):   5,849.77 ms,  3.21 GB
+[slack:72428]     (inline):  15,714.00 ms,  5.18 GB
+[slack:72428]    (compile):  30,526.46 ms,  5.29 GB
+[slack:72428]      compile:  54,166.83 ms,  5.29 GB
+[slack:72428]        image:   3,009.64 ms,  5.33 GB
+[slack:72428]        write:     818.88 ms,  5.33 GB
+[slack:72428]      [total]:  95,531.54 ms,  5.33 GB
+
+BUILD SUCCESSFUL in 1m 48s
+8 actionable tasks: 6 executed, 2 up-to-date
+
+$ l build/{libs,native-image}
+build/libs:
+Permissions Size User  Date Modified Name
+.rw-r--r--  4.0k bric3 20 Nov 15:33  slack-set-profile-0.1-all.jar
+.rw-r--r--  3.4k bric3 20 Nov 15:33  slack-set-profile-0.1-r8.jar
+.rw-r--r--  3.7k bric3 20 Nov 15:33  slack-set-profile-0.1.jar
+
+build/native-image:
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   33M bric3 20 Nov 15:35  slack
+----
+
+It is still over 30 MiB ! This is definitely a lot for binary that is just
+doing a single HTTP call per command (it doesn't even do JSON serialization
+or deserialization).
 
 
 == Step 4, try Jake Wharton approach with r8

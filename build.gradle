@@ -70,10 +70,10 @@ nativeImage {
 }
 
 dependencies {
-    annotationProcessor("info.picocli:picocli-codegen:4.5.2")
+//    annotationProcessor("info.picocli:picocli-codegen:4.5.2")
     
     compileOnly("org.graalvm.nativeimage:svm:20.3.0")
-    implementation("info.picocli:picocli:4.5.1")
+//    implementation("info.picocli:picocli:4.5.1")
 
     r8 'com.android.tools:r8:2.1.67'
 }
