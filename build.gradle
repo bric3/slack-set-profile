@@ -32,6 +32,10 @@ dependencies {
     runtimeOnly("ch.qos.logback:logback-classic")
 }
 
+nativeImage {
+    imageName("slack")
+}
+
 mainClassName = "slack.set.profile.SlackSetProfileCommand"
 java {
     sourceCompatibility = JavaVersion.toVersion('11')
