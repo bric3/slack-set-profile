@@ -3,6 +3,13 @@
 
 == Step 4, try Jake Wharton approach with r8
 
+Some time ago I read an
+https://jakewharton.com/shrinking-a-kotlin-binary/[interesting article]
+by https://twitter.com/JakeWharton[Jake Wharton] on shrinking the jar size.
+
+Let's try to reduce the size of the shadowed jar to hopefully reduce
+the GraalVM one. Currently, the shadowed jar file, is about 1.2 MiB.
+
 .jar and shadowed jar sizes
 [source, shell]
 ----
@@ -17,11 +24,126 @@ Permissions Size User  Date Modified Name
 .rw-r--r--  4.8k bric3 19 Nov  9:43  slack-set-profile-0.1.jar
 ----
 
-https://jakewharton.com/shrinking-a-kotlin-binary/
-https://github.com/JakeWharton/dependency-tree-diff
-https://r8-docs.preemptive.com/
-https://www.guardsquare.com/en/products/proguard/manual/examples
+The idea is to run _R8_, the android minifier, on the project
+to remove non-needed code, since it is not an Android project,
+I will use the same code as Jake Wharton in its
+https://github.com/JakeWharton/dependency-tree-diff[dependency-tree-diff] project.
 
+.Custom R8 gradle task
+[source,gradle]
+----
+task r8(type: JavaExec) {
+    dependsOn(configurations.named('runtimeClasspath'))
+    dependsOn(shadowJar)
+    inputs.files(shadowJar.archiveFile.get(), 'src/main/proguard-rules.txt')
+    outputs.file(r8File)
+
+    classpath(configurations.r8)
+    main = 'com.android.tools.r8.R8'
+    args = [
+            '--release',
+            '--classfile',
+            '--output', r8File.toString(),
+            '--pg-conf', 'src/main/proguard-rules.txt',
+            '--lib', System.properties['java.home'].toString()
+    ]
+    doFirst {
+        args += shadowJar.archiveFile.get()
+    }
+}
+----
+
+I'll need to tweak the proguard rules for this project. R8 uses the same
+configuration as proguard, so I'll need to write a Proguard rules. Normally
+proguard (and R8) is also used to obfuscate code. As I'm totally new
+to proguard and R8, I'll start of again from the
+https://github.com/JakeWharton/dependency-tree-diff[dependency-tree-diff] project.
+
+.Proguard inspired by Jake Wharthon
+[source, proguard]
+----
+-dontobfuscate
+-allowaccessmodification
+-keepattributes SourceFile, LineNumberTable, RuntimeVisibleAnnotations
+
+# cli app
+-keep class slack.set.profile.SlackSetProfileCommand {
+    public static void main(java.lang.String[]);
+}
+----
+
+This configuration alone is not enough and R8 warns because some classes
+are missing, then R8 fails on this missing class `javax.mail.Authenticator`.
+I searched a while, but simply adding the `-dontwarn` rules on the packages
+that were warned about fixed this issue.
+
+.Ignore missing classes
+[source,proguard]
+----
+# Make r8 not fail on missing classes
+-dontwarn javax.annotation.**
+-dontwarn org.codehaus.groovy.**
+-dontwarn groovy.**
+-dontwarn javax.servlet.**
+-dontwarn javax.mail.**
+----
+
+The R8 process completed, but the application failed at runtime because
+too many classes or fields where missing. For this I needed to dive in the
+proguard documentation, because R8 documentation is quite scarce.
+Here are the sources I used :
+
+* https://r8-docs.preemptive.com/ => Unofficial R8 documentation
+* https://www.guardsquare.com/en/products/proguard/manual/examples =>
+Official proguard documentation, here the example sections
+
+First the application didn't start because fields of picocli classes
+were stripped out. I wrote the following rule to keep fields and methods
+annotated by Picocli annotations.
+
+.Proguard configuration for picocli
+[source, proguard]
+----
+# picocli
+-keep class picocli.CommandLine.** { *;}
+-keep @picocli.CommandLine$* class * { *; }
+-keepclassmembers class ** {
+  @picocli.CommandLine$* public protected private <methods>;
+}
+-keepclassmembers class * {
+  @picocli.CommandLine$* public protected private <fields>;
+}
+-keepclassmembers class ** {
+  @picocli.CommandLine$* <init>(...);
+}
+----
+
+Fixing picocli made the application work, but logging was still off,
+with some errors. So I crafted a small configuration that kept some
+logback classes matching the `logback.xml` configuration.
+
+.Logback encoder pattern
+[source]
+----
+%cyan(%d{HH:mm:ss.SSS}) %gray([%thread]) %highlight(%-5level) %magenta(%logger{36}) - %msg%n
+----
+
+.Proguard configuration for logback
+[source, proguard]
+----
+-keep class ch.qos.logback.core.ConsoleAppender { *; }
+-keep class ch.qos.logback.classic.encoder.PatternLayoutEncoder { *; }
+-keep class ch.qos.logback.classic.pattern.LineSeparatorConverter { *; }
+-keep class ch.qos.logback.classic.pattern.MessageConverter { *; }
+-keep class ch.qos.logback.classic.pattern.LoggerConverter { *; }
+-keep class ch.qos.logback.classic.pattern.ThreadConverter { *; }
+-keep class ch.qos.logback.classic.pattern.DateConverter { *; }
+-keep class ch.qos.logback.classic.pattern.LevelConverter { *; }
+-keep class ch.qos.logback.classic.pattern.color.HighlightingCompositeConverter { *; }
+-keep class ch.qos.logback.core.pattern.color.* { *; }
+----
+
+So once everything was in order, did it help to further reduce the size of the binary ?
 
 [source, shell]
 ----
@@ -35,14 +157,16 @@ Permissions Size User  Date Modified Name
 .rw-r--r--@ 597k bric3 19 Nov 17:29  slack-set-profile-0.1-r8.jar
 ----
 
-The first thing to notice is the reduced size for jar that was _minified_
-by R8.
+The first thing to notice is the reduced size of the _minified_ jar
+compared to shadowed jar, it's half the size. So for this step this is
+already a success.
 
-Now the issue is to pass this minified jar to `native-image`, gradle plugin
-usually pass a main class and a classpath. The custom `r8` task is a `JavaExec`
-and cannot be used directly with `nativeImage.jarTask`.
+Next thing to do is to pass this minified jar to `native-image`.
+For this I needed to create a dumb gradle `Jar` task because the custom
+`r8` task is of type `JavaExec` and cannot be set to the `nativeImage.jarTask`
+configuration field.
 
-
+.Native image of the minified Jar with R8
 [source, shell]
 ----
 $ ./gradlew clean nativeImage
@@ -73,7 +197,8 @@ Permissions Size User  Date Modified Name
 .rwxr-xr-x   36M bric3 19 Nov 19:00  build/native-image/slack
 ----
 
-Still 36 MiB, sad
+It is still 36 MiB, so in the end minifying the jar did not help
+to reduce the native image.
 
 == Step 3, reducing size by removing micrometer plugin
 
