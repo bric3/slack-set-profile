@@ -1,5 +1,28 @@
 = GraalVM cli-app toy that sets slack profile name
 
+== Step 5, remove libraries
+
+First let's remove logback, replacing the logging calls, by a simpler
+`System.out.printf`.
+
+[source,shell]
+----
+$ ls -lh build/{libs,native-image}
+build/libs:
+Permissions Size User  Date Modified Name
+.rw-r--r--  390k bric3 20 Nov 11:07  slack-set-profile-0.1-all.jar
+.rw-r--r--  285k bric3 20 Nov 11:07  slack-set-profile-0.1-r8.jar
+.rw-r--r--  279k bric3 20 Nov 11:07  slack-set-profile-0.1.jar
+
+build/native-image:
+Permissions Size User  Date Modified Name
+.rwxr-xr-x   31M bric3 20 Nov 11:08  slack
+----
+
+There's definitively an improvement, but this only gained 5 MiB.
+
+
+
 
 == Step 4, try Jake Wharton approach with r8
 

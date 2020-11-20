@@ -1,7 +1,5 @@
 package slack.set.profile;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -25,7 +23,6 @@ import java.time.temporal.ChronoUnit;
 )
 public class SlackSetProfileCommand implements Runnable {
 
-    private static final Logger log = LoggerFactory.getLogger("http");
     private final HttpClient httpClient = HttpClient.newBuilder().build();
 
 
@@ -59,11 +56,11 @@ public class SlackSetProfileCommand implements Runnable {
                     BodyHandlers.ofString()
             );
 
-            log.info("{}", httpResponse);
-            log.info("{}", httpResponse.headers());
-            log.info("{}", httpResponse.body());
+            System.out.printf("%s", httpResponse);
+            System.out.printf("%s", httpResponse.headers());
+            System.out.printf("%s", httpResponse.body());
         } catch (IOException | InterruptedException e) {
-            log.error("Error while reaching slack.com/api", e);
+            System.err.printf("Error while reaching slack.com/api: %s", e);
         }
     }
 
@@ -88,11 +85,11 @@ public class SlackSetProfileCommand implements Runnable {
                     BodyHandlers.ofString()
             );
 
-            log.info("{}", httpResponse);
-            log.info("{}", httpResponse.headers());
-            log.info("{}", httpResponse.body());
+            System.out.printf("%s", httpResponse);
+            System.out.printf("%s", httpResponse.headers());
+            System.out.printf("%s", httpResponse.body());
         } catch (IOException | InterruptedException e) {
-            log.error("Error while reaching slack.com/api", e);
+            System.err.printf("Error while reaching slack.com/api: %s", e);
         }
     }
 }
